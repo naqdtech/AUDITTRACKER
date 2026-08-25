@@ -85,6 +85,15 @@ let sb = null, DEMO = false, cases = [], selectedId = null, activeTab = "to_revi
 function connPill(txt,color){ const p=document.getElementById('connPill'); p.innerHTML=`<span class="dot" style="background:${color}"></span>${txt}`; }
 
 async function initData(){
+  // Build-time diagnostic: shows whether Vite inlined the env vars (VITE_ prefix,
+  // present at BUILD time). Never logs the key itself — only booleans + URL host.
+  try {
+    console.info("[auditor] build env → URL set:", !!CONFIG.SUPABASE_URL,
+      CONFIG.SUPABASE_URL ? "(" + new URL(CONFIG.SUPABASE_URL).host + ")" : "(none)",
+      "· key set:", !!CONFIG.SUPABASE_ANON_KEY,
+      "· mode:", (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY) ? "LIVE" : "DEMO");
+  } catch (e) { console.warn("[auditor] SUPABASE_URL is not a valid URL:", CONFIG.SUPABASE_URL); }
+
   if(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY){
     sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
     await loadCases();
