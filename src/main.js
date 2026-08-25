@@ -43,36 +43,42 @@ const TABS = [
         in lib/statutory/config.js; edit here or load from audit_settings) ---- */
 const REVIEW_TEMPLATE = {
   sections: [
-    { key:"books", title:"Books & Reconciliation", items:[
+    { key:"general", title:"General", items:[
       { id:"bank_recon", label:"All bank accounts reconciled", type:"yn" },
+      { id:"loan_recon", label:"All loan accounts reconciled with statement & repayment schedule", type:"yn" },
       { id:"cash_bal", label:"Cash balance verified (no negative cash)", type:"yn" },
-      { id:"stock", label:"Closing stock verified & valued", type:"yn" },
-      { id:"debtors", label:"Debtors / creditors confirmations reviewed", type:"yn" },
+      { id:"stock", label:"Closing stock verified & valued — ratio to turnover not abnormal", type:"yn" },
+      { id:"debtors_creditors", label:"Debtors / creditors statements reviewed", type:"yn" },
+      { id:"gp_np_ratio", label:"GP & NP ratios of previous year checked with current year", type:"yn" },
+      { id:"ledger_scrutiny", label:"Ledgers scrutinised for abnormal behaviour", type:"yn" },
+      { id:"capital_loan_moves", label:"Significant movements in capital or loan accounts reviewed", type:"yn" },
+      { id:"depr_entries", label:"Depreciation entries checked (incl. Companies Act depreciation)", type:"yn" },
+    ]},
+    // GST section is gated by a primary question: if not registered, skip the rest.
+    { key:"gst", title:"GST", gate:{ id:"gst_registered", label:"GST registered?" }, items:[
       { id:"gst_recon", label:"GST turnover reconciled with books", type:"yn" },
-      { id:"tds_comp", label:"TDS deducted & deposited (compliance)", type:"yn" },
-      { id:"tax_recon_26as_ais", label:"Reconciliation with 26AS / AIS & books", type:"yn" },
+      { id:"purchase_ledger", label:"Purchase ledger checked for non-purchase entries", type:"yn" },
       { id:"gst_itc_recon", label:"GST ITC vs GSTR-2B reconciled", type:"yn" },
-      { id:"tcs_comp", label:"TCS compliance (reconciliation & deposit)", type:"yn" },
-      { id:"late_pay_interest", label:"Interest on late TDS/GST/TCS checked", type:"yn" },
-      { id:"turnover", label:"Turnover / gross receipts", type:"amount" },
+      { id:"gst_ledger_bal", label:"GST cash & credit ledger balances matched", type:"yn" },
+      { id:"gst_payable_recv", label:"GST payable / receivable matched", type:"yn" },
+      { id:"gst_interest_latefee", label:"Interest & late fee entries verified", type:"yn" },
+      { id:"gst_adjustments", label:"Reconciliation / adjustment entries checked", type:"yn" },
     ]},
-    { key:"tcd", title:"3CD Particulars", items:[
+    { key:"tds_tcs", title:"TDS & TCS", items:[
+      { id:"tds_payable", label:"TDS payable entries confirmed", type:"yn" },
+      { id:"tds_non_deduction", label:"Non-deduction of TDS checked (professional charges, rent, partner remuneration & interest, commission, contract, interest on NBFC loans)", type:"yn" },
+      { id:"tds_3cd_details", label:"3CD TDS details obtained (section-wise deduction, payment & filing dates)", type:"yn" },
+    ]},
+    { key:"tcd", title:"3CD Filing", items:[
       { id:"applic", label:"44AB applicability clause", type:"text" },
-      { id:"method", label:"Method of accounting consistent", type:"yn" },
-      { id:"depr", label:"Depreciation as per IT Act", type:"yn" },
-      { id:"disallow", label:"Disallowances checked (40(a)/40A(3)/43B)", type:"yn" },
-      { id:"loans_269", label:"Loans/deposits u/s 269SS/269T reviewed", type:"yn" },
-      { id:"ratios", label:"Ratios & quantitative details filled", type:"yn" },
-      { id:"msme_delay", label:"MSME payment delays checked (43B(h))", type:"yn" },
-      { id:"personal_exp", label:"Personal expenses disallowance reviewed", type:"yn" },
-      { id:"deemed_div", label:"Deemed dividend exposure (2(22)(e))", type:"yn" },
-    ]},
-    { key:"final", title:"Final Sign-off", items:[
-      { id:"form", label:"Audit report form", type:"select", options:["3CA-3CD","3CB-3CD"] },
-      { id:"udin", label:"UDIN generated", type:"yn" },
-      { id:"fs_signed", label:"Financial statements signed", type:"yn" },
-      { id:"itr_tie", label:"ITR figures tie to 3CD / financials", type:"yn" },
-      { id:"result", label:"Total income / tax payable", type:"text" },
+      { id:"icds", label:"ICDS disclosures", type:"yn" },
+      { id:"observations", label:"Observations & comments (MSME, cash, debtors, creditors, stock)", type:"text" },
+      { id:"depr_itact", label:"Depreciation as per IT Act — additions", type:"yn" },
+      { id:"partner_remun", label:"Partnership remuneration & interest", type:"yn" },
+      { id:"disallow", label:"Disallowances (if any)", type:"yn" },
+      { id:"tds_particulars", label:"TDS particulars", type:"yn" },
+      { id:"ratios", label:"Ratios", type:"yn" },
+      { id:"clause_44", label:"Clause 44", type:"yn" },
     ]},
   ],
 };
@@ -157,10 +163,14 @@ function render(){
 function setTab(k){ activeTab=k; render(); }
 
 function reviewProgress(c){
-  const items = REVIEW_TEMPLATE.sections.flatMap(s=>s.items);
   const ans = (c.review&&c.review.answers)||{};
+  const items = [];
+  REVIEW_TEMPLATE.sections.forEach(sec=>{
+    if(sec.gate){ items.push({ id:sec.gate.id }); if(ans[sec.gate.id]!=='yes') return; } // gated off → skip its items
+    sec.items.forEach(it=>items.push(it));
+  });
   const done = items.filter(i=> ans[i.id]!==undefined && ans[i.id]!=="" ).length;
-  return Math.round(done/items.length*100);
+  return items.length ? Math.round(done/items.length*100) : 0;
 }
 
 function cardHTML(c){
@@ -179,15 +189,24 @@ function cardHTML(c){
 function selectCase(id){ selectedId=id; document.getElementById('main').classList.add('showdetail'); render(); }
 
 function renderDetail(c){
-  const ans = (c.review&&c.review.answers)||{};
+  const ans = {...((c.review&&c.review.answers)||{}), ...pendingAns}; // include unsaved edits
   const notes = (c.review&&c.review.notes)||{};
-  const sectionsHTML = REVIEW_TEMPLATE.sections.map(sec=>`
-    <div class="section">
-      <h3>${sec.title}</h3>
-      <div class="rows">
-        ${sec.items.map(it=>rowHTML(it, ans[it.id], notes[it.id])).join('')}
-      </div>
-    </div>`).join('');
+  const sectionsHTML = REVIEW_TEMPLATE.sections.map(sec=>{
+    let rows = '';
+    if(sec.gate){
+      const gv = ans[sec.gate.id];
+      rows += rowHTML({ id:sec.gate.id, label:sec.gate.label, type:'yn' }, gv, notes[sec.gate.id], true);
+      if(gv==='yes'){
+        rows += sec.items.map(it=>rowHTML(it, ans[it.id], notes[it.id])).join('');
+      } else {
+        const msg = (gv==='no'||gv==='na') ? 'Not registered — remaining GST checks not applicable.' : 'Answer the question above to continue.';
+        rows += `<div class="row"><label style="color:var(--muted)">${msg}</label><div class="ctl"></div></div>`;
+      }
+    } else {
+      rows += sec.items.map(it=>rowHTML(it, ans[it.id], notes[it.id])).join('');
+    }
+    return `<div class="section"><h3>${esc(sec.title)}</h3><div class="rows">${rows}</div></div>`;
+  }).join('');
 
   document.getElementById('detail').innerHTML = `
     <div class="dhead">
@@ -218,11 +237,12 @@ function renderDetail(c){
   `;
 }
 
-function rowHTML(it, val, note){
+function rowHTML(it, val, note, isGate){
   let ctl='';
   if(it.type==='yn'){
+    const fn = isGate ? 'setGate' : 'toggleYN';   // gate re-renders to show/hide items; others just toggle
     ctl = `<div class="yn" data-id="${it.id}">
-      ${['yes','no','na'].map(v=>`<button data-v="${v}" class="${val===v?'on':''}" onclick="setAns('${it.id}','${v}')">${v==='na'?'N/A':v[0].toUpperCase()+v.slice(1)}</button>`).join('')}
+      ${['yes','no','na'].map(v=>`<button data-v="${v}" class="${val===v?'on':''}" onclick="${fn}('${it.id}','${v}')">${v==='na'?'N/A':v[0].toUpperCase()+v.slice(1)}</button>`).join('')}
     </div>`;
   } else if(it.type==='amount'){
     ctl = `<input class="amt" type="number" placeholder="₹" value="${val??''}" onchange="setAns('${it.id}',this.value)"/>`;
@@ -310,6 +330,23 @@ function markUI(id,v){
   const grp=document.querySelector(`.yn[data-id="${id}"]`);
   if(grp){ grp.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===v)); }
 }
+// effective current answer = unsaved edit if any, else saved
+function currentAns(id){
+  if(Object.prototype.hasOwnProperty.call(pendingAns,id)) return pendingAns[id];
+  const c=cases.find(x=>x.id===selectedId);
+  return (c&&c.review&&c.review.answers&&c.review.answers[id]) || '';
+}
+// Yes/No/N-A toggle: clicking the active option clears it (deselect)
+function toggleYN(id,v){ setAns(id, currentAns(id)===v ? '' : v); }
+// Section gate (e.g. GST registered?) — same toggle, then re-render to show/hide items
+function setGate(id,v){
+  pendingAns[id] = (currentAns(id)===v ? '' : v);
+  const c=cases.find(x=>x.id===selectedId);
+  if(c){
+    const ta=document.getElementById('auditorNotes'); if(ta) c.auditor_notes=ta.value; // keep unsaved observations
+    renderDetail(c);
+  }
+}
 
 function collectReview(c){
   const ans = {...((c.review&&c.review.answers)||{}), ...pendingAns};
@@ -394,4 +431,4 @@ function demoCases(){
 }
 
 /* expose handlers used by inline on* attributes */
-Object.assign(window, { setTab, selectCase, act, setAns });
+Object.assign(window, { setTab, selectCase, act, setAns, toggleYN, setGate });
