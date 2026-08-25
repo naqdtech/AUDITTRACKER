@@ -6,9 +6,8 @@ to the **same Supabase project / `audit_cases` table**, so when NAQD marks a cas
 ready for auditor review it appears here in real time, and the auditor's actions
 flow straight back to NAQD.
 
-> Replaces the earlier Next.js build of the audit tracker. This is now a
-> standalone `index.html` — no build step, no `node_modules`. Open the file (or
-> serve it) and it runs.
+> Replaces the earlier Next.js build of the audit tracker. Built with **Vite**
+> (vanilla JS) — Supabase credentials come from `.env`, deployable on Vercel.
 
 ---
 
@@ -44,23 +43,30 @@ column — mirrors `DEFAULT_REVIEW_TEMPLATE` in the NAQD tracker.
 
 ## Run it
 
-**Instant (demo):** open `index.html` in a browser. With no Supabase config it
-loads sample cases from memory so you can click through the whole flow.
-
-**Live:** edit the `CONFIG` block at the top of `index.html`:
-
-```js
-const CONFIG = {
-  SUPABASE_URL:  "https://xxxx.supabase.co",
-  SUPABASE_ANON_KEY: "…",
-};
+```bash
+npm install
+cp .env.example .env      # then fill in the two values
+npm run dev               # http://localhost:5173
+npm run build             # -> dist/  (static, deploy anywhere)
 ```
 
-Use the **same** Supabase URL + anon key as the NAQD statutory tracker. The app
-reads/writes `audit_cases` and subscribes to Realtime for live sync.
+Set the Supabase credentials in **`.env`** (same project as the NAQD statutory
+tracker):
 
-Deploy by serving the single file as a static page (Vercel, Netlify, GitHub
-Pages, or any static host).
+```
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=…
+```
+
+The app reads/writes `audit_cases` and subscribes to Realtime for live sync.
+**With no `.env` values it runs in DEMO mode** (sample cases in memory) — and the
+Supabase client is tree-shaken out of that build entirely.
+
+### Deploy on Vercel
+
+Framework preset **Vite** (declared in `vercel.json`). Add the two env vars —
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — under **Project → Settings →
+Environment Variables**, then deploy. Build command `vite build`, output `dist`.
 
 ---
 
