@@ -1,127 +1,97 @@
-# Audit Case Tracker
+# NAQD Auditor Console
 
-A workflow tracker for a tax-audit practice to monitor every client's audit
-case through its stages — from onboarding and books work to verification,
-auditor review, 3CD filing, ITR filing and forwarding the finished documents.
+A single-file web app for the **auditor** side of NAQD's tax-audit workflow. It
+is the bridge partner to the NAQD statutory (Audit Case) tracker: both apps talk
+to the **same Supabase project / `audit_cases` table**, so when NAQD marks a case
+ready for auditor review it appears here in real time, and the auditor's actions
+flow straight back to NAQD.
 
-Built with **Next.js (App Router)** + **Supabase (Postgres)**, deployable on
-**Vercel**. It is a sibling of the ITR Filing Tracker and can share the **same
-Supabase project** — it uses its own `audit_*` tables.
-
-> Staff assignment is handled in-app; there is **no login/users** table. An
-> optional shared passcode gate is included.
+> Replaces the earlier Next.js build of the audit tracker. This is now a
+> standalone `index.html` — no build step, no `node_modules`. Open the file (or
+> serve it) and it runs.
 
 ---
 
-## Pipeline
+## What the auditor does here
 
-8 board columns, gated and sequential. Books Cleanup and Books (Scratch) are
-**alternatives at the same level** — a case takes one of them, not both:
+The auditor owns the case from review through both filings:
 
 ```
-Onboarding → ┌ Books Cleanup ┐ → Verification → Auditor Review →
-             └ Books (Scratch)┘
-           → 3CD Filing → ITR Filing → Docs Forwarded
+NAQD app                              Auditor Console
+─────────                             ───────────────
+stage = auditor_review
+review_status = pending_review   ──▶  "To Review" inbox → fill checklist
+                             ┌──────  queries_raised            (needs NAQD/client input)
+   resolves queries  ◀───────┘
+   review_status = pending_review ─▶  back in inbox
+                             ┌──────  pending_client_confirmation
+   gets client sign-off
+   review_status = client_confirmed ─▶ "File 3CB-3CD"
+                                       auditor files 3CB-3CD
+                             ┌──────  udin + filing_3cd_date + audit_form
+                             │        review_status = filed  (stage → filing_itr)
+                             │        auditor files the ITR
+                             ├──────  filing_date + ack_no + outcome + everify
+                             │        review_status = itr_filed (stage → docs_forwarded)
+   case complete  ◀──────────┘
 ```
 
-- **Onboarding → Books:** requires a valid PAN.
-- **Books → Verification:** every document collected or marked N/A.
-- **ITR Filing:** requires the 3CD filing date + audit report form (3CA/3CB-3CD).
-- **Docs Forwarded:** requires the ITR filing date + acknowledgement number.
-
-Moving backwards, and moving sideways between the two books columns, is always
-free.
-
-## Features
-
-- **Audit-scope checklist:** tick the aspects that apply (bank accounts, GST,
-  inventory, fixed assets/depreciation, TDS, loans, related parties, cash) and
-  the required-documents list is generated — one line per bank account / party.
-  The base list also depends on entity type (proprietor / firm / LLP / company).
-  Custom items can be added; any item can be marked N/A.
-- **Five views:** ☀ Today (work queue), ▦ Board (kanban), ≣ Table, ₹ Fees, 📊
-  Reports — with search and stage / scope / referrer / entity / staff filters.
-- **Two deadlines:** the tax-audit report (3CD, ~30 Sep) and the ITR (~31 Oct /
-  30 Nov for TP), with colour-coded countdowns; the card shows whichever is next.
-- **30-day ITR e-verification** countdown from the filing date.
-- **Auditor review checklist** — an editable verification template (books
-  reconciliations, 3CD particulars, sign-off) filled per case and exported as a
-  shareable PNG for the auditor/partner.
-- **Documents forwarding** — a cover sheet PNG + WhatsApp draft listing the
-  enclosures (audited financials, Form 3CD, computation, ITR acknowledgement).
-- **Fees tab & invoices:** quoted amount + billing status (Not invoiced →
-  Invoiced → Collected), and a Tally-style A4 invoice PDF (auto-numbered
-  `NCG/AUD/###`, amount-in-words, bank details + UPI QR).
-- **Consultant / referral tracking**, **staff assignment**, **bulk CSV import**,
-  **follow-up WhatsApp drafts**, **alias & group tags**, **Reports + CSV export**.
-- **Live sync** across staff screens when Supabase is connected (Realtime);
-  saves are optimistic.
+The auditor also completes a **detailed review checklist** (Books &
+Reconciliation, 3CD Particulars, Final Sign-off) stored on the `review` JSONB
+column — mirrors `DEFAULT_REVIEW_TEMPLATE` in the NAQD tracker.
 
 ---
 
-## Run locally
+## Run it
 
-```bash
-npm install
-npm run dev
+**Instant (demo):** open `index.html` in a browser. With no Supabase config it
+loads sample cases from memory so you can click through the whole flow.
+
+**Live:** edit the `CONFIG` block at the top of `index.html`:
+
+```js
+const CONFIG = {
+  SUPABASE_URL:  "https://xxxx.supabase.co",
+  SUPABASE_ANON_KEY: "…",
+};
 ```
 
-Open http://localhost:3000. With **no environment variables set**, the app runs
-in **Demo mode** using localStorage and seeded sample cases — no backend needed.
+Use the **same** Supabase URL + anon key as the NAQD statutory tracker. The app
+reads/writes `audit_cases` and subscribes to Realtime for live sync.
+
+Deploy by serving the single file as a static page (Vercel, Netlify, GitHub
+Pages, or any static host).
 
 ---
 
-## Connect Supabase (production)
+## Database
 
-1. Create (or reuse) a project at https://supabase.com.
-2. In **SQL Editor**, paste and run [`supabase/schema.sql`](supabase/schema.sql).
-   It creates the `audit_cases`, `audit_consultants`, `audit_staff` and
-   `audit_settings` tables, indexes, an `updated_at` trigger, RLS policies, and
-   enables Realtime. Safe to run alongside the ITR tracker in the same project.
-3. In **Project Settings → API**, copy the **Project URL** and the **anon public**
-   key.
-4. Copy `.env.local.example` to `.env.local` and fill in:
+Run **`migration-v12-auditor-bridge.sql`** once in the shared Supabase project
+(Dashboard → SQL Editor). It is additive/idempotent — it adds the handoff
+columns (`review_status`, `auditor_notes`, `auditor_assigned`, `review_log`),
+indexes `review_status`, and backfills existing `auditor_review` cases to
+`pending_review`. The ITR fields (`filing_date`, `ack_no`, `outcome_type`,
+`outcome_amount`, `everify_date`) already exist from the tracker's v9 schema;
+this app now writes them.
 
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
-   NEXT_PUBLIC_APP_PASSCODE=your-team-passcode   # optional
-   ```
+### `review_status` contract (shared by both apps)
 
-5. Restart `npm run dev`. The header badge should switch to "Live (Supabase)".
-
-> **Security note:** because there is no per-user auth, the anon key has full
-> access via the included RLS policy. Keep the key private, set
-> `NEXT_PUBLIC_APP_PASSCODE`, and tighten the policy when you add Supabase Auth.
-
----
-
-## Deploy to Vercel
-
-1. Push this folder to its own Git repository.
-2. In Vercel, **Add New → Project**, import the repo (framework: Next.js).
-3. Add env vars `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
-   optionally `NEXT_PUBLIC_APP_PASSCODE`.
-4. **Deploy.**
+| value | meaning |
+|---|---|
+| `pending_review` | NAQD sent it; shows in auditor "To Review" |
+| `in_review` | auditor started the checklist |
+| `queries_raised` | auditor sent it back to NAQD with queries |
+| `pending_client_confirmation` | auditor done; NAQD to get client sign-off |
+| `client_confirmed` | NAQD confirmed; shows in "File 3CB-3CD" |
+| `filed` | auditor filed 3CB-3CD; now files the ITR |
+| `itr_filed` | auditor filed the ITR — case complete |
 
 ---
 
-## Adjusting the workflow
+## Security note
 
-Everything firm-specific lives in `lib/config.js`:
-
-- **Stages:** `STAGES` (each has a `level`; two stages sharing a level are
-  parallel alternatives).
-- **Audit scope aspects & their documents:** `SCOPE`; **base docs per entity
-  type:** `GENERAL_ITEMS_BY_ENTITY`.
-- **Deadlines:** `AUDIT_REPORT_DUE` (3CD) and `DUE_CATEGORIES` (ITR buckets).
-- **Auditor-review checklist:** `DEFAULT_REVIEW_TEMPLATE` (also editable in-app,
-  saved to `audit_settings`); layouts in `components/sheets.js`.
-- **Invoice company/bank/UPI + prefix (`NCG/AUD`):** the `COMPANY` object;
-  layout in `components/InvoiceSheet.js`.
-- **Assessment year:** `ASSESSMENT_YEAR`. **Firm name:** `FIRM_NAME`.
-- **Follow-up wording:** `lib/followup.js`; **forwarding wording:**
-  `lib/clientDoc.js`.
-
-The **entire app talks to storage only through `lib/store.js`** — Supabase and
-the localStorage demo implement the same interface.
+Access uses the shared Supabase anon key (as agreed — the auditor is external
+but part of NAQD management). The app deliberately **never selects** the
+plaintext `it_portal_password` / `gst_password` columns, so a leaked auditor
+build does not expose client portal logins. If the relationship ever becomes
+arm's-length, switch on Supabase Auth + RLS — no app rewrite needed.
