@@ -109,7 +109,7 @@ async function initData(){
       .subscribe(s => connPill(s==='SUBSCRIBED'?'live · synced':'connecting…', s==='SUBSCRIBED'?'var(--ok)':'var(--muted)'));
     connPill('live · synced','var(--ok)');
   } else {
-    DEMO = true; cases = demoCases(); connPill('demo mode (no DB)','var(--warn)'); render();
+    DEMO = true; cases = demoCases().filter(auditorRelevant); connPill('demo mode (no DB)','var(--warn)'); render();
   }
 }
 
@@ -118,16 +118,21 @@ async function loadCases(){
   // NOTE: we deliberately do NOT select it_portal_password / gst_password.
   const cols = "id,name,alias,group_name,entity_type,pan,assessment_year,itr_form,assigned_staff,"+
                "stage,review_status,review,audit_form,udin,filing_3cd_date,pending_client,notes,"+
-               "auditor_notes,fee_quoted,updated_at,stage_since,"+
+               "auditor_notes,fee_quoted,updated_at,stage_since,audit_type,"+
                "filing_date,ack_no,outcome_type,outcome_amount,everify_date";
   const { data, error } = await sb.from('audit_cases')
     .select(cols)
     .in('review_status', Object.values(RS))
     .order('updated_at',{ascending:false});
   if(error){ toast('Load error: '+error.message); return; }
-  cases = data || [];
+  // Audit scope "Not Applicable" cases never belong to the auditor — filtered
+  // client-side (a .neq would also drop rows where audit_type is null).
+  cases = (data || []).filter(auditorRelevant);
   render();
 }
+
+// A case is the auditor's only if its audit scope isn't "Not Applicable".
+function auditorRelevant(c){ return (c.audit_type || "").toUpperCase() !== "NOT APPLICABLE"; }
 
 async function patch(id, fields){
   fields = {...fields, updated_at:new Date().toISOString()};
@@ -427,6 +432,9 @@ function demoCases(){
     { id:"7", name:"Pioneer Steel Co", entity_type:"company", pan:"AAECP7788K", assessment_year:"2026-27", itr_form:"ITR-6", assigned_staff:"Shibily",
       stage:"docs_forwarded", review_status:RS.ITR_FILED, audit_form:"3CA-3CD", udin:"26AAABC9999Z111213", filing_3cd_date:"2026-09-10",
       filing_date:"2026-09-15", ack_no:"5348811220926", outcome_type:"payable", outcome_amount:128400, everify_date:"2026-09-15", stage_since:d(1), review:{answers:{}}, updated_at:d(0.9) },
+    // Audit scope "Not Applicable" — must NOT appear in the auditor's inbox.
+    { id:"8", name:"Zephyr Retail (No Audit)", entity_type:"individual", pan:"AAZPR1122K", assessment_year:"2026-27", itr_form:"ITR-4", assigned_staff:"Dennis",
+      audit_type:"NOT APPLICABLE", stage:"auditor_review", review_status:RS.PENDING_REVIEW, stage_since:d(1), review:{answers:{}}, updated_at:d(0.4) },
   ];
 }
 
